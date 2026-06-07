@@ -111,66 +111,78 @@ if st.button("Run Pipeline"):
     # =========================
     # PROCESS FILES
     # =========================
-    for file in uploaded_files:
-        try:
-            st.write(f"📂 Processing: {file.name}")
+   for file in uploaded_files:
 
-            # -------------------------
-            # EXCEL
-            # -------------------------
-            if file.name.endswith(".xlsx"):
+    try:
+        st.write(f"📂 Processing: {file.name}")
 
-                df = pd.read_excel(file)
-                st.dataframe(df.head())
+        # -------------------------
+        # EXCEL FILES
+        # -------------------------
+        if file.name.endswith(".xlsx"):
 
-                year = detect_year(file.name)
-                df = apply_mapping(df, year)
-                df = add_metadata(df, file.name, year)
-                df = enforce_schema(df)
+            df = pd.read_excel(file)
+            st.write("Preview:")
+            st.dataframe(df.head())
 
-                master_list.append(df)
-                st.success(f"✅ Processed Excel: {file.name}")
+            year = detect_year(file.name)
 
-            # -------------------------
-            # HDF5 ✅
-            # -------------------------
-elif file.name.endswith(".h5"):
+            df = apply_mapping(df, year)
+            df = add_metadata(df, file.name, year)
+            df = enforce_schema(df)
 
-    import h5py
+            master_list.append(df)
+            st.success(f"✅ Processed Excel: {file.name}")
 
-    with h5py.File(file, "r") as f:
+        # -------------------------
+        # HDF5 FILES ✅ FIXED VERSION
+        # -------------------------
+        elif file.name.endswith(".h5"):
 
-        def extract(name, obj):
+            import h5py
             import numpy as np
 
-            if isinstance(obj, h5py.Dataset):
+            with h5py.File(file, "r") as f:
 
-                try:
-                    data = obj[:]
+                def extract(name, obj):
 
-                    # Convert into DataFrame safely
-                    if isinstance(data, np.ndarray):
-                        if data.ndim == 1:
-                            df = pd.DataFrame(data, columns=["Value"])
-                        else:
-                            df = pd.DataFrame(data)
-                    else:
-                        return
+                    if isinstance(obj, h5py.Dataset):
 
-                    st.write(f"Dataset: {name}")
-                    st.dataframe(df.head())
+                        try:
+                            data = obj[:]
 
-                    year = detect_year(file.name)
-                    source_name = f"{file.name}_{name}"
+                            if isinstance(data, np.ndarray):
+                                if data.ndim == 1:
+                                    df = pd.DataFrame(data, columns=["Value"])
+                                else:
+                                    df = pd.DataFrame(data)
+                            else:
+                                return
 
-                    df = apply_mapping(df, year)
-                    df = add_metadata(df, source_name, year)
-                    df = enforce_schema(df)
+                            st.write(f"Dataset: {name}")
+                            st.dataframe(df.head())
 
-                    master_list.append(df)
+                            year = detect_year(file.name)
+                            source_name = f"{file.name}_{name}"
 
-                except Exception as e:
-                    st.warning(f"Skipping {name}: {e}")
+                            df = apply_mapping(df, year)
+                            df = add_metadata(df, source_name, year)
+                            df = enforce_schema(df)
+
+                            master_list.append(df)
+
+                        except Exception as e:
+                            st.warning(f"Skipping {name}: {e}")
+
+                f.visititems(extract)
+
+            st.success(f"✅ Processed HDF5: {file.name}")
+
+        else:
+            st.warning(f"Skipped file type: {file.name}")
+
+    except Exception as e:
+        st.error(f"{file.name} failed: {e}")
 
         f.visititems(extract)
 
