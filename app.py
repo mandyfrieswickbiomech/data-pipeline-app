@@ -134,31 +134,47 @@ if st.button("Run Pipeline"):
             # -------------------------
             # HDF5 ✅
             # -------------------------
-            elif file.name.endswith(".h5"):
+elif file.name.endswith(".h5"):
 
-                with pd.HDFStore(file, mode="r") as store:
-                    keys = store.keys()
+    import h5py
 
-                    if not keys:
-                        st.warning(f"{file.name} has no datasets")
-                        continue
+    with h5py.File(file, "r") as f:
 
-                    for key in keys:
-                        df = store.get(key)
+        def extract(name, obj):
+            import numpy as np
 
-                        st.write(f"Dataset: {key}")
-                        st.dataframe(df.head())
+            if isinstance(obj, h5py.Dataset):
 
-                        year = detect_year(file.name)
-                        source_name = f"{file.name}_{key}"
+                try:
+                    data = obj[:]
 
-                        df = apply_mapping(df, year)
-                        df = add_metadata(df, source_name, year)
-                        df = enforce_schema(df)
+                    # Convert into DataFrame safely
+                    if isinstance(data, np.ndarray):
+                        if data.ndim == 1:
+                            df = pd.DataFrame(data, columns=["Value"])
+                        else:
+                            df = pd.DataFrame(data)
+                    else:
+                        return
 
-                        master_list.append(df)
+                    st.write(f"Dataset: {name}")
+                    st.dataframe(df.head())
 
-                st.success(f"✅ Processed HDF5: {file.name}")
+                    year = detect_year(file.name)
+                    source_name = f"{file.name}_{name}"
+
+                    df = apply_mapping(df, year)
+                    df = add_metadata(df, source_name, year)
+                    df = enforce_schema(df)
+
+                    master_list.append(df)
+
+                except Exception as e:
+                    st.warning(f"Skipping {name}: {e}")
+
+        f.visititems(extract)
+
+    st.success(f"✅ Processed HDF5: {file.name}")
 
             else:
                 st.warning(f"Skipped file type: {file.name}")
