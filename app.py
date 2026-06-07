@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import tempfile
 import os
+import h5py
+import numpy as np
 
 # =========================
 # MASTER SCHEMA
@@ -24,7 +26,7 @@ MASTER_COLUMNS = [
 # MAPPINGS (EDIT LATER)
 # =========================
 MAPPINGS = {
-    "2013": {}  # we'll customize after preview
+    "2013": {}
 }
 
 # =========================
@@ -43,19 +45,11 @@ def enforce_schema(df):
             df[col] = None
     return df[MASTER_COLUMNS]
 
-# ✅ UPDATED: DATE HANDLING
 def add_metadata(df, source_name, year):
 
-    possible_date_cols = [
-        "Date",
-        "date",
-        "Date_performed",
-        "experiment_date",
-        "timestamp"
-    ]
+    possible_date_cols = ["Date", "date", "Date_performed", "experiment_date", "timestamp"]
 
     date_found = None
-
     for col in possible_date_cols:
         if col in df.columns:
             date_found = col
@@ -72,7 +66,6 @@ def add_metadata(df, source_name, year):
     return df
 
 def create_summary(master_df):
-
     numeric_cols = master_df.select_dtypes(include='number').columns
 
     if len(numeric_cols) == 0:
@@ -111,82 +104,63 @@ if st.button("Run Pipeline"):
     # =========================
     # PROCESS FILES
     # =========================
-   for file in uploaded_files:
+    for file in uploaded_files:
 
-    try:
-        st.write(f"📂 Processing: {file.name}")
+        try:
+            st.write(f"📂 Processing: {file.name}")
 
-        # -------------------------
-        # EXCEL FILES
-        # -------------------------
-        if file.name.endswith(".xlsx"):
+            # ---------- EXCEL ----------
+            if file.name.endswith(".xlsx"):
 
-            df = pd.read_excel(file)
-            st.write("Preview:")
-            st.dataframe(df.head())
+                df = pd.read_excel(file)
+                st.dataframe(df.head())
 
-            year = detect_year(file.name)
+                year = detect_year(file.name)
 
-            df = apply_mapping(df, year)
-            df = add_metadata(df, file.name, year)
-            df = enforce_schema(df)
+                df = apply_mapping(df, year)
+                df = add_metadata(df, file.name, year)
+                df = enforce_schema(df)
 
-            master_list.append(df)
-            st.success(f"✅ Processed Excel: {file.name}")
+                master_list.append(df)
 
-        # -------------------------
-        # HDF5 FILES ✅ FIXED VERSION
-        # -------------------------
-        elif file.name.endswith(".h5"):
+                st.success(f"✅ Processed Excel: {file.name}")
 
-            import h5py
-            import numpy as np
+            # ---------- HDF5 ----------
+            elif file.name.endswith(".h5"):
 
-            with h5py.File(file, "r") as f:
+                with h5py.File(file, "r") as f:
 
-                def extract(name, obj):
+                    def extract(name, obj):
+                        if isinstance(obj, h5py.Dataset):
+                            try:
+                                data = obj[:]
 
-                    if isinstance(obj, h5py.Dataset):
-
-                        try:
-                            data = obj[:]
-
-                            if isinstance(data, np.ndarray):
-                                if data.ndim == 1:
-                                    df = pd.DataFrame(data, columns=["Value"])
+                                if isinstance(data, np.ndarray):
+                                    if data.ndim == 1:
+                                        df = pd.DataFrame(data, columns=["Value"])
+                                    else:
+                                        df = pd.DataFrame(data)
                                 else:
-                                    df = pd.DataFrame(data)
-                            else:
-                                return
+                                    return
 
-                            st.write(f"Dataset: {name}")
-                            st.dataframe(df.head())
+                                st.write(f"Dataset: {name}")
+                                st.dataframe(df.head())
 
-                            year = detect_year(file.name)
-                            source_name = f"{file.name}_{name}"
+                                year = detect_year(file.name)
+                                source_name = f"{file.name}_{name}"
 
-                            df = apply_mapping(df, year)
-                            df = add_metadata(df, source_name, year)
-                            df = enforce_schema(df)
+                                df = apply_mapping(df, year)
+                                df = add_metadata(df, source_name, year)
+                                df = enforce_schema(df)
 
-                            master_list.append(df)
+                                master_list.append(df)
 
-                        except Exception as e:
-                            st.warning(f"Skipping {name}: {e}")
+                            except Exception as e:
+                                st.warning(f"Skipping {name}: {e}")
 
-                f.visititems(extract)
+                    f.visititems(extract)
 
-            st.success(f"✅ Processed HDF5: {file.name}")
-
-        else:
-            st.warning(f"Skipped file type: {file.name}")
-
-    except Exception as e:
-        st.error(f"{file.name} failed: {e}")
-
-        f.visititems(extract)
-
-    st.success(f"✅ Processed HDF5: {file.name}")
+                st.success(f"✅ Processed HDF5: {file.name}")
 
             else:
                 st.warning(f"Skipped file type: {file.name}")
@@ -211,10 +185,10 @@ if st.button("Run Pipeline"):
 
     with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
 
-        # ✅ MASTER
+        # MASTER SHEET
         master_df.to_excel(writer, sheet_name="Master", index=False)
 
-        # ✅ GROUP BY SPECIMEN
+        # SPECIMEN SHEETS
         grouped = master_df.groupby("Specimen_ID")
 
         for specimen_id, group_df in grouped:
@@ -228,12 +202,13 @@ if st.button("Run Pipeline"):
 
             group_df.to_excel(writer, sheet_name=sheet_name, index=False)
 
-        # ✅ SUMMARY
+        # SUMMARY SHEET
         summary_df = create_summary(master_df)
+
         if not summary_df.empty:
             summary_df.to_excel(writer, sheet_name="Summary", index=False)
 
-    st.success("🎉 Pipeline completed!")
+    st.success("🎉 Pipeline completed successfully!")
 
     with open(excel_path, "rb") as f:
         st.download_button("⬇️ Download Excel", f, "master_dataset.xlsx")
